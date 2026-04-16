@@ -1,12 +1,5 @@
 # ❄️ snowflake-claude-code
 
-```
-          ❆
-       ❅▐▛███▜▌❅
-        ▝▜█████▛▘
-          ▘▘ ▝▝
-```
-
 [![PyPI](https://img.shields.io/pypi/v/snowflake-claude-code.svg)](https://pypi.org/project/snowflake-claude-code/)
 [![CI](https://github.com/dylan-murray/snowflake-claude-code/actions/workflows/ci.yml/badge.svg)](https://github.com/dylan-murray/snowflake-claude-code/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
