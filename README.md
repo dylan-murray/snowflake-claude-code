@@ -78,35 +78,17 @@ Precedence: **CLI flags > env vars > config file > defaults.**
 
 ## 🤖 Supported models
 
-The proxy forwards whatever model ID you pass to Cortex, so **any Cortex-hosted model your account has access to will work** — not just Claude. Claude models are the primary target (Claude Code itself is built around them), but non-Claude models work fine for plain chat.
+| Model ID | Notes |
+|----------|-------|
+| `claude-sonnet-4-6` | Default — 1M context built-in |
+| `claude-sonnet-4-5` | Previous-generation Sonnet |
+| `claude-opus-4-6` | Most capable Claude model on Cortex |
+| `claude-opus-4-5` | Previous-generation Opus |
+| `claude-haiku-4-5` | Fastest, cheapest |
 
-### Anthropic · Claude (recommended for Claude Code)
-`claude-sonnet-4-6` *(default · 1M context)*, `claude-sonnet-4-5`, `claude-opus-4-6`, `claude-opus-4-5`, `claude-haiku-4-5`, `claude-4-sonnet`, `claude-3-7-sonnet`
+The proxy forwards any model ID to Cortex, so non-Claude models (Llama, Mistral, OpenAI, DeepSeek, Gemini, Snowflake Arctic, etc.) also work for plain chat — just pass `--model <id>`. See the [Snowflake Cortex model list](https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions#availability) for the full catalog.
 
-### Meta · Llama
-`llama4-maverick`, `llama4-scout`, `llama3.1-405b`, `llama3.3-70b`, `llama3.1-70b`, `llama3.1-8b`, `llama3-70b`, `llama3-8b`
-
-### Mistral AI
-`mistral-large2`, `mistral-large`, `mixtral-8x7b`, `mistral-7b`
-
-### OpenAI
-`openai-gpt-5.2`, `openai-gpt-5.1`, `openai-gpt-5`, `openai-gpt-5-mini`, `openai-gpt-5-nano`, `openai-gpt-5-chat`, `openai-gpt-4.1`, `openai-o4-mini`, `openai-gpt-oss-120b`, `openai-gpt-oss-20b`
-
-### Google
-`gemini-3.1-pro`
-
-### DeepSeek
-`deepseek-r1`
-
-### Snowflake
-`snowflake-arctic`, `snowflake-llama-3.3-70b`, `snowflake-llama-3.1-405b`
-
-**Availability caveats:**
-- **Region.** Not every model is live in every Snowflake region. Use [cross-region inference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cross-region-inference) or check `SHOW CORTEX FUNCTIONS` for your region.
-- **Entitlement.** Your account may not have access to every model — models are enabled per-account.
-- **Tool calling.** Claude Code relies on tool-use for file reads, edits, and shell commands. Claude models support this; non-Claude models vary and may silently fail on agentic flows. Stick to Claude if you want the full Claude Code experience.
-
-See the [Snowflake Cortex LLM functions docs](https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions#availability) for the authoritative current list.
+Claude Code's agentic flows rely on tool-use, which Claude models support fully — tool-calling compatibility on other providers varies. Not every model is live in every region; use [cross-region inference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cross-region-inference) or `SHOW CORTEX FUNCTIONS` to check.
 
 ### /model picker
 
