@@ -1,10 +1,17 @@
 # ❄️ snowflake-claude-code
 
+```
+          ❆
+       ❅▐▛███▜▌❅
+        ▝▜█████▛▘
+          ▘▘ ▝▝
+```
+
 [![PyPI](https://img.shields.io/pypi/v/snowflake-claude-code.svg)](https://pypi.org/project/snowflake-claude-code/)
 [![CI](https://github.com/dylan-murray/snowflake-claude-code/actions/workflows/ci.yml/badge.svg)](https://github.com/dylan-murray/snowflake-claude-code/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Run [Claude Code](https://claude.com/product/claude-code) against Claude models hosted in your [Snowflake Cortex](https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions) account, so prompts and responses never leave your Snowflake governance boundary.
+Run [Claude Code](https://claude.com/product/claude-code) against Claude models served by [Cortex](https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions) inside your Snowflake account, so prompts and responses never leave your Snowflake governance boundary.
 
 ```
 Claude Code  →  FastAPI proxy (127.0.0.1:4000)  →  Snowflake Cortex Inference
