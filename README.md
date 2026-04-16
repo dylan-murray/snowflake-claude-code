@@ -12,7 +12,7 @@ Claude Code  →  FastAPI proxy (127.0.0.1:4000)  →  Snowflake Cortex Inferenc
 
 The CLI authenticates to Snowflake (SSO or PAT), starts a local proxy that translates Anthropic Messages API calls to Cortex Inference calls (SSE streaming included), and launches Claude Code pointed at the proxy.
 
-## Quick start
+## ⚡ Quick start
 
 ```bash
 uv tool install snowflake-claude-code
@@ -22,20 +22,20 @@ snowflake-claude-code --account MYORG-MYACCOUNT --user me@company.com
 
 Browser pops for Snowflake SSO, proxy spins up, Claude Code launches.
 
-## Why
+## 🔒 Why
 
-**Nothing from your Claude Code session leaves Snowflake.** Every prompt, file read, tool call, and model response flows through Cortex inference inside your existing Snowflake account — no traffic to `api.anthropic.com`, no separate API key to manage.
+**Your Claude Code session never talks to Anthropic.** Every prompt, file read, tool call, and model response goes over TLS to the same Snowflake endpoint your warehouse queries already use — governed by your existing Snowflake trust boundary, not a new third-party LLM vendor.
 
-- **Zero egress.** The proxy binds to `127.0.0.1` only.
-- **Snowflake IAM applies.** Role, warehouse, and network policy controls gate model access. Revoke Snowflake → revoke AI.
-- **Familiar auth.** Browser SSO flows through your existing IdP; PATs for headless.
-- **Full audit trail.** Every call lands in `SNOWFLAKE.ACCOUNT_USAGE.CORTEX_REST_API_USAGE_HISTORY`.
-- **Data residency honored.** Inference runs in your account's region.
-- **No training on your data.** Per [Snowflake Cortex terms](https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions#data-usage).
-- **Consolidated spend.** Cortex tokens roll up with your warehouse costs.
-- **Transparent re-auth.** Expired tokens trigger a silent refresh mid-session.
+- 🚫 **No traffic to Anthropic.** The proxy binds to `127.0.0.1` only; the only outbound endpoint is your Snowflake account's API.
+- 🛡️ **Snowflake IAM applies.** Role, warehouse, and network policy controls gate model access. Revoke Snowflake → revoke AI.
+- 🔑 **Familiar auth.** Browser SSO flows through your existing IdP; PATs for headless.
+- 📝 **Full audit trail.** Every call lands in `SNOWFLAKE.ACCOUNT_USAGE.CORTEX_REST_API_USAGE_HISTORY`.
+- 🌍 **Data residency honored.** Inference runs in your account's region.
+- 🧠 **No training on your data.** Per [Snowflake Cortex terms](https://docs.snowflake.com/en/user-guide/snowflake-cortex/llm-functions#data-usage).
+- 💰 **Consolidated spend.** Cortex tokens roll up with your warehouse costs.
+- ♻️ **Transparent re-auth.** Expired tokens trigger a silent refresh mid-session.
 
-## Install
+## 📦 Install
 
 Requires Python 3.10+ and the [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI.
 
@@ -52,7 +52,7 @@ And Claude Code itself:
 npm install -g @anthropic-ai/claude-code
 ```
 
-## Usage
+## 🚀 Usage
 
 ```bash
 snowflake-claude-code \
@@ -76,7 +76,7 @@ Any flag can be set via an env var (`SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, etc.)
 
 Precedence: **CLI flags > env vars > config file > defaults.**
 
-## Supported models
+## 🤖 Supported models
 
 | Model ID | Notes |
 |----------|-------|
@@ -94,7 +94,7 @@ Non-Claude Cortex models work for plain chat too (`--model mistral-large2`, `--m
 
 Claude Code's built-in picker lists its own aliases (Sonnet, Opus, Haiku, 1M-context variants) — we can't replace that catalog. The model you launched with appears as a custom picker entry labeled "Via Snowflake Cortex". Swap by relaunching with a different `--model`.
 
-## Verify traffic is hitting Snowflake
+## 🔍 Verify traffic is hitting Snowflake
 
 ```sql
 SELECT START_TIME, MODEL_NAME, TOKENS, USER_ID, INFERENCE_REGION
@@ -105,7 +105,7 @@ ORDER BY START_TIME DESC;
 
 `ACCOUNT_USAGE` views lag 45 min–3 hours. For real-time, run with `--verbose`.
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 snowflake_claude_code/
@@ -118,7 +118,7 @@ snowflake_claude_code/
 
 The proxy binds to `127.0.0.1` only. The Snowflake token lives in process memory for the session lifetime and is cleared on exit.
 
-## Development
+## 🛠️ Development
 
 ```bash
 git clone https://github.com/dylan-murray/snowflake-claude-code.git
@@ -132,6 +132,6 @@ uv run ruff format .
 
 CI runs on Python 3.10–3.13.
 
-## License
+## 📄 License
 
 MIT — see [LICENSE](LICENSE).
