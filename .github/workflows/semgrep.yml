@@ -1,0 +1,18 @@
+name: Semgrep
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 6 * * 3"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: semgrep scan --config auto --error .
