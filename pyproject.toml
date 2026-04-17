@@ -1,6 +1,6 @@
 [project]
 name = "snowflake-claude-code"
-version = "1.0.1"
+version = "1.0.2"
 description = "Run Claude Code against Claude models hosted on Snowflake Cortex."
 readme = "README.md"
 license = { file = "LICENSE" }

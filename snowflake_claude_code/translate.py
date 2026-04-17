@@ -37,11 +37,28 @@ def anthropic_to_cortex(body: dict[str, Any], model: str) -> dict[str, Any]:
         if isinstance(system, str):
             messages.append({"role": "system", "content": system})
         elif isinstance(system, list):
-            text = "\n".join(b["text"] for b in system if b.get("type") == "text")
-            messages.append({"role": "system", "content": text})
+            # Keep each text block separate so per-block cache_control markers
+            # survive. Anthropic and Cortex both use ephemeral cache breakpoints
+            # placed on the last few blocks of long prompts; joining would drop
+            # them and force a full recompute every turn.
+            text_blocks = [b for b in system if b.get("type") == "text"]
+            if any(b.get("cache_control") for b in text_blocks):
+                messages.append(
+                    {
+                        "role": "system",
+                        "content_list": [_convert_content_block(b, {}) for b in text_blocks],
+                    }
+                )
+            else:
+                joined = "\n".join(b.get("text", "") for b in text_blocks)
+                messages.append({"role": "system", "content": joined})
 
+    # Cortex's tool_results block requires the tool's name, which Anthropic's
+    # tool_result block doesn't carry. Walk earlier tool_use blocks to build
+    # an id → name map that tool_result entries can look up.
+    tool_names: dict[str, str] = {}
     for msg in body.get("messages", []):
-        messages.append(_convert_message(msg))
+        messages.append(_convert_message(msg, tool_names))
 
     result: dict[str, Any] = {
         "model": model,
@@ -94,6 +111,7 @@ class StreamAdapter:
         self._in_text_block = False
         self._open_tool_blocks: list[int] = []
         self._tool_indices: dict[int, int] = {}
+        self._active_cortex_tool_id: str | None = None
         self._started = False
         self._input_tokens = 0
         self._output_tokens = 0
@@ -134,7 +152,10 @@ class StreamAdapter:
         if "choices" in data:
             for choice in data["choices"]:
                 delta = choice.get("delta", {})
-                events.extend(self._process_oai_delta(delta, choice.get("finish_reason")))
+                if delta.get("type") == "tool_use":
+                    events.extend(self._process_cortex_tool_delta(delta))
+                else:
+                    events.extend(self._process_oai_delta(delta, choice.get("finish_reason")))
         elif "delta" in data:
             events.extend(self._process_anthropic_delta(data))
 
@@ -156,9 +177,9 @@ class StreamAdapter:
             events.append(
                 sse_event("content_block_stop", {"type": "content_block_stop", "index": self._block_index})
             )
+            self._in_text_block = False
 
-        for block_idx in self._open_tool_blocks:
-            events.append(sse_event("content_block_stop", {"type": "content_block_stop", "index": block_idx}))
+        events.extend(self._close_open_tool_blocks())
 
         events.append(
             sse_event(
@@ -218,6 +239,11 @@ class StreamAdapter:
 
         if content := delta.get("content"):
             if not self._in_text_block:
+                # Close any open tool blocks before opening a new text block.
+                # Cortex will stream text *after* a tool_use within the same
+                # turn (Claude narrates, then calls another tool, etc.), and
+                # Claude Code rejects SSE where content blocks overlap.
+                events.extend(self._close_open_tool_blocks())
                 self._in_text_block = True
                 events.append(
                     sse_event(
@@ -305,11 +331,91 @@ class StreamAdapter:
 
         return events
 
+    def _process_cortex_tool_delta(self, delta: dict[str, Any]) -> list[str]:
+        """Translate Snowflake Cortex's own tool_use streaming shape into Anthropic SSE.
+
+        Cortex sends:
+          1. `{"type": "tool_use", "tool_use_id": "...", "name": "..."}` — the tool declaration
+          2. `{"type": "tool_use", "input": "<partial json chunk>"}` — input pieces (no id)
+
+        We emit the matching Anthropic events: `content_block_start` for (1), then
+        `content_block_delta` with `input_json_delta` for each (2), keyed by the
+        tool id we cached when (1) arrived.
+        """
+        events: list[str] = []
+        tool_id = delta.get("tool_use_id")
+        tool_name = delta.get("name")
+        input_chunk = delta.get("input")
+
+        # Declaration event: has tool_use_id + name, no input yet.
+        if tool_id and tool_name and tool_id not in self._tool_indices:
+            if self._in_text_block:
+                events.append(
+                    sse_event(
+                        "content_block_stop", {"type": "content_block_stop", "index": self._block_index}
+                    )
+                )
+                self._block_index += 1
+                self._in_text_block = False
+
+            # Close any previous tool blocks so we don't overlap.
+            events.extend(self._close_open_tool_blocks())
+
+            self._tool_indices[tool_id] = self._block_index
+            self._open_tool_blocks.append(self._block_index)
+            self._active_cortex_tool_id = tool_id
+            self._stop_reason = "tool_use"
+            events.append(
+                sse_event(
+                    "content_block_start",
+                    {
+                        "type": "content_block_start",
+                        "index": self._block_index,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": tool_id,
+                            "name": tool_name,
+                            "input": {},
+                        },
+                    },
+                )
+            )
+            self._block_index += 1
+
+        # Input chunk event: has `input`, routes to the currently-active tool block.
+        if input_chunk:
+            active_id = tool_id or self._active_cortex_tool_id
+            if active_id and active_id in self._tool_indices:
+                block_idx = self._tool_indices[active_id]
+                events.append(
+                    sse_event(
+                        "content_block_delta",
+                        {
+                            "type": "content_block_delta",
+                            "index": block_idx,
+                            "delta": {"type": "input_json_delta", "partial_json": input_chunk},
+                        },
+                    )
+                )
+
+        return events
+
+    def _close_open_tool_blocks(self) -> list[str]:
+        """Emit content_block_stop events for every still-open tool block and clear state."""
+        events: list[str] = []
+        for block_idx in self._open_tool_blocks:
+            events.append(sse_event("content_block_stop", {"type": "content_block_stop", "index": block_idx}))
+        if self._open_tool_blocks:
+            self._block_index = max(self._block_index, max(self._open_tool_blocks) + 1)
+        self._open_tool_blocks = []
+        self._active_cortex_tool_id = None
+        return events
+
 
 # -- Message conversion (Anthropic → Snowflake Cortex) --
 
 
-def _convert_message(msg: dict[str, Any]) -> dict[str, Any]:
+def _convert_message(msg: dict[str, Any], tool_names: dict[str, str]) -> dict[str, Any]:
     role = msg["role"]
     content = msg.get("content")
 
@@ -319,7 +425,11 @@ def _convert_message(msg: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(content, list):
         return {"role": role, "content": content}
 
-    filtered = [b for b in content if b.get("type") not in ("thinking", "redacted_thinking")]
+    filtered = [
+        _convert_content_block(b, tool_names)
+        for b in content
+        if b.get("type") not in ("thinking", "redacted_thinking")
+    ]
 
     if len(filtered) == 1 and filtered[0].get("type") == "text":
         return {"role": role, "content": filtered[0]["text"]}
@@ -327,11 +437,89 @@ def _convert_message(msg: dict[str, Any]) -> dict[str, Any]:
     return {"role": role, "content_list": filtered}
 
 
+def _convert_content_block(block: dict[str, Any], tool_names: dict[str, str]) -> dict[str, Any]:
+    """Reshape Anthropic content blocks into Cortex's nested content_list shape.
+
+    Cortex schemas (from the generated SDK):
+      - tool_use:   {"type": "tool_use", "tool_use": {"tool_use_id", "name", "input"}}
+      - tool_results (plural):
+                    {"type": "tool_results", "tool_results": {"tool_use_id", "name", "content"}}
+
+    Cortex requires ``name`` on tool_results, so ``tool_names`` threads the
+    id → name map earlier tool_use blocks established through the conversation.
+
+    ``cache_control`` markers (ephemeral prompt caching) are preserved on every
+    block type that supports them — text, tool_use, tool_results, image.
+    Dropping these turns every turn into a full-prompt cache miss and balloons
+    latency; keeping them lets Cortex reuse the cached prefix.
+    """
+    block_type = block.get("type")
+    cache_control = block.get("cache_control")
+
+    if block_type == "tool_use":
+        tool_use_id = block.get("id") or block.get("tool_use_id", "")
+        name = block.get("name", "")
+        if tool_use_id and name:
+            tool_names[tool_use_id] = name
+        out: dict[str, Any] = {
+            "type": "tool_use",
+            "tool_use": {
+                "tool_use_id": tool_use_id,
+                "name": name,
+                "input": block.get("input") or {},
+            },
+        }
+        if cache_control:
+            out["cache_control"] = cache_control
+        return out
+
+    if block_type == "tool_result":
+        tool_use_id = block.get("tool_use_id", "")
+        payload = block.get("content", "")
+        if isinstance(payload, str):
+            content_blocks = [{"type": "text", "text": payload}]
+        elif isinstance(payload, list):
+            content_blocks = [_convert_tool_result_entry(p) for p in payload]
+        else:
+            content_blocks = [{"type": "text", "text": str(payload)}]
+        out = {
+            "type": "tool_results",
+            "tool_results": {
+                "tool_use_id": tool_use_id,
+                "name": tool_names.get(tool_use_id, ""),
+                "content": content_blocks,
+            },
+        }
+        if cache_control:
+            out["cache_control"] = cache_control
+        return out
+
+    if block_type == "text":
+        out = {"type": "text", "text": block.get("text", "")}
+        if cache_control:
+            out["cache_control"] = cache_control
+        return out
+
+    return block
+
+
+def _convert_tool_result_entry(entry: Any) -> dict[str, Any]:
+    """Normalize a single entry inside an Anthropic tool_result.content list."""
+    if isinstance(entry, dict):
+        entry_type = entry.get("type")
+        if entry_type == "text":
+            return {"type": "text", "text": entry.get("text", "")}
+        if entry_type == "image":
+            # Pass image blocks through unchanged; Cortex accepts the Anthropic shape.
+            return entry
+    return {"type": "text", "text": str(entry)}
+
+
 # -- Tool schema conversion --
 
 
 def _convert_tool(tool: dict[str, Any]) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "tool_spec": {
             "type": "generic",
             "name": tool["name"],
@@ -339,6 +527,12 @@ def _convert_tool(tool: dict[str, Any]) -> dict[str, Any]:
             "input_schema": tool.get("input_schema", {}),
         },
     }
+    # Forward cache_control so Cortex can reuse the cached prefix of the tool
+    # catalog between turns. Claude Code typically marks the last tool in the
+    # list for ephemeral caching.
+    if cache_control := tool.get("cache_control"):
+        out["cache_control"] = cache_control
+    return out
 
 
 def _convert_tool_choice(choice: Any) -> Any:
