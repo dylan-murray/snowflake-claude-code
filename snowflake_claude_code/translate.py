@@ -404,9 +404,7 @@ class StreamAdapter:
         """Emit content_block_stop events for every still-open tool block and clear state."""
         events: list[str] = []
         for block_idx in self._open_tool_blocks:
-            events.append(
-                sse_event("content_block_stop", {"type": "content_block_stop", "index": block_idx})
-            )
+            events.append(sse_event("content_block_stop", {"type": "content_block_stop", "index": block_idx}))
         if self._open_tool_blocks:
             self._block_index = max(self._block_index, max(self._open_tool_blocks) + 1)
         self._open_tool_blocks = []

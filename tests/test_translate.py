@@ -155,7 +155,11 @@ class TestCacheControl:
                         "role": "user",
                         "content": [
                             {"type": "text", "text": "hi"},
-                            {"type": "text", "text": "see prior context", "cache_control": {"type": "ephemeral"}},
+                            {
+                                "type": "text",
+                                "text": "see prior context",
+                                "cache_control": {"type": "ephemeral"},
+                            },
                         ],
                     }
                 ],
@@ -519,9 +523,7 @@ class TestStreamAdapter:
         for chunk in ['{"p', 'ath":', ' "hello.txt",', ' "content": "hi"}']:
             events += adapter.feed(
                 {
-                    "choices": [
-                        {"delta": {"type": "tool_use", "input": chunk, "text": ""}}
-                    ],
+                    "choices": [{"delta": {"type": "tool_use", "input": chunk, "text": ""}}],
                 }
             )
         events += adapter.feed(
@@ -570,22 +572,14 @@ class TestStreamAdapter:
         events = adapter.feed(
             {
                 "id": "msg-1",
-                "choices": [
-                    {"delta": {"type": "tool_use", "tool_use_id": "toolu_x", "name": "Bash"}}
-                ],
+                "choices": [{"delta": {"type": "tool_use", "tool_use_id": "toolu_x", "name": "Bash"}}],
                 "usage": {"prompt_tokens": 50},
             }
         )
-        events += adapter.feed(
-            {"choices": [{"delta": {"type": "tool_use", "input": '{"cmd":"ls"}'}}]}
-        )
+        events += adapter.feed({"choices": [{"delta": {"type": "tool_use", "input": '{"cmd":"ls"}'}}]})
         # Now Cortex streams narrative text — this must close the tool block first.
-        events += adapter.feed(
-            {"choices": [{"delta": {"type": "text", "content": "Next I will "}}]}
-        )
-        events += adapter.feed(
-            {"choices": [{"delta": {"type": "text", "content": "write the file."}}]}
-        )
+        events += adapter.feed({"choices": [{"delta": {"type": "text", "content": "Next I will "}}]})
+        events += adapter.feed({"choices": [{"delta": {"type": "text", "content": "write the file."}}]})
         events += adapter.finish()
 
         parsed = _parse_sse_list(events)
