@@ -118,10 +118,6 @@ Not every model is available in every Snowflake region — use [cross-region inf
 
 Non-Claude Cortex models work for plain chat too (`--model mistral-large2`, `--model llama3.1-70b`). Tool-calling compatibility varies.
 
-### /model picker
-
-Claude Code's built-in picker lists its own aliases (Sonnet, Opus, Haiku, 1M-context variants) — we can't replace that catalog. The model you launched with appears as a custom picker entry labeled "Via Snowflake Cortex". Swap by relaunching with a different `--model`.
-
 ## 🔍 Verify traffic is hitting Snowflake
 
 ```sql
