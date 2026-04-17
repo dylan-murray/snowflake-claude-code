@@ -107,16 +107,57 @@ ORDER BY START_TIME DESC;
 
 ## 🏗️ Architecture
 
+```mermaid
+flowchart LR
+    User(["👤 You"])
+
+    subgraph laptop["💻 Your laptop"]
+        direction TB
+        CC["Claude Code<br/>subprocess"]
+        subgraph SCC["snowflake-claude-code (Python)"]
+            direction TB
+            PROXY["FastAPI proxy<br/><code>127.0.0.1:4000</code>"]
+            TRANS["Anthropic ⇄ Cortex<br/>translator + SSE adapter"]
+            MGR["ConnectionManager<br/>auth + 401 re-auth"]
+        end
+    end
+
+    subgraph Snow["❄️ Snowflake account (your region)"]
+        direction TB
+        IDP["Identity Provider<br/>Okta · Azure AD · Ping"]
+        CORTEX["Cortex Inference<br/>REST API"]
+        AUDIT[("ACCOUNT_USAGE.<br/>CORTEX_REST_API_USAGE_HISTORY")]
+    end
+
+    User -- prompts / edits --> CC
+    CC == "Anthropic Messages API<br/>via ANTHROPIC_BASE_URL" ==> PROXY
+    PROXY --> TRANS --> MGR
+    MGR == TLS ==> CORTEX
+    CORTEX -. logs every call .-> AUDIT
+    MGR -. browser SSO<br/>(once per session) .-> IDP
+
+    classDef external stroke:#29B5E8,stroke-width:2px,fill:#eaf6fc,color:#000
+    classDef local stroke:#555,stroke-width:1px,fill:#f7f7f7,color:#000
+    class Snow,CORTEX,IDP,AUDIT external
+    class laptop,SCC,CC,PROXY,TRANS,MGR local
+```
+
+**Data path.** Claude Code sends Anthropic-format requests to the local proxy, which translates them to Cortex `CompleteRequest` objects (including tool schemas and SSE streaming). Responses stream back through the translator and into Claude Code unchanged.
+
+**Auth path.** On first launch, `ConnectionManager` opens a Snowflake connection — browser SSO by default, PAT if one is configured. On any 401 from Cortex the manager transparently rebuilds the connection and retries the request.
+
+**Boundaries.** The proxy binds to `127.0.0.1` only — nothing is exposed over the network. The Snowflake token lives in process memory and is cleared on exit.
+
+### Code layout
+
 ```
 snowflake_claude_code/
 ├── cli.py        Parse config, start proxy, launch `claude` subprocess
 ├── proxy.py      FastAPI app: /v1/messages, /v1/models, /v1/health
 ├── translate.py  Anthropic ⇄ Cortex format translation + SSE adapter
-├── auth.py       Snowflake connector + re-auth on 401
-└── config.py     Layered config loader
+├── auth.py       Snowflake connector + ConnectionManager (re-auth on 401)
+└── config.py     Layered config loader (CLI > env > TOML > defaults)
 ```
-
-The proxy binds to `127.0.0.1` only. The Snowflake token lives in process memory for the session lifetime and is cleared on exit.
 
 ## 🛠️ Development
 
