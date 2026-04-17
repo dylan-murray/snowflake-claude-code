@@ -107,28 +107,20 @@ ORDER BY START_TIME DESC;
 
 ## 🏗️ Architecture
 
-```mermaid
-flowchart LR
-    You([👤 You])
+![snowflake-claude-code architecture](docs/architecture.svg)
 
-    subgraph laptop["💻 Your machine"]
-        CC[Claude Code]
-        Proxy["snowflake-claude-code<br/>proxy · 127.0.0.1:4000"]
-    end
+**Data path.** Claude Code sends Anthropic-format requests to the local FastAPI proxy via `ANTHROPIC_BASE_URL` — it has no idea Anthropic isn't on the other end. The proxy translates each request to a Cortex `CompleteRequest` (tool schemas, streaming, and all), forwards it over TLS to your Snowflake account, and streams the response back in Anthropic SSE format.
 
-    subgraph sf["❄️ Your Snowflake account"]
-        Cortex[("Cortex Inference")]
-    end
+**Auth path.** `ConnectionManager` opens a Snowflake session via browser SSO (or a PAT, if configured) on first launch. When the Snowflake token expires, a 401 from Cortex triggers a silent re-auth and retry — long-running Claude Code sessions stay alive.
 
-    You --> CC
-    CC <-->|"Anthropic Messages API"| Proxy
-    Proxy <-->|"Cortex REST · TLS"| Cortex
+**Audit path.** Every inference call lands in `SNOWFLAKE.ACCOUNT_USAGE.CORTEX_REST_API_USAGE_HISTORY` with timestamp, user ID, model, token counts, and request ID.
 
-    style laptop fill:#f8f8f8,stroke:#666,color:#000
-    style sf fill:#e6f4fb,stroke:#29b5e8,color:#000
-```
+**Boundaries.** The proxy binds to `127.0.0.1` only — nothing is exposed over the network. The Snowflake token lives in process memory for the session lifetime and is cleared on exit.
 
-Claude Code sends Anthropic-format requests to the local proxy via `ANTHROPIC_BASE_URL` — it has no idea Anthropic isn't on the other end. The proxy translates each request to a Cortex `CompleteRequest` (tool schemas, streaming, and all), forwards over TLS to your Snowflake account, and streams the response back in Anthropic SSE format. When the Snowflake session expires, the proxy silently re-auths and retries the request mid-stream. The proxy binds to `127.0.0.1` only — no network exposure — and the Snowflake token lives in process memory for the session lifetime.
+> Diagram source: [`docs/architecture.d2`](docs/architecture.d2). Re-render with [`d2`](https://d2lang.com):
+> ```bash
+> d2 --theme 0 --pad 40 docs/architecture.d2 docs/architecture.svg
+> ```
 
 ### Code layout
 

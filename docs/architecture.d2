@@ -1,0 +1,153 @@
+# Architecture diagram for snowflake-claude-code.
+# Render with: d2 --theme 0 --pad 40 docs/architecture.d2 docs/architecture.svg
+# Source of truth — do not edit the SVG by hand.
+
+direction: right
+
+vars: {
+  d2-config: {
+    theme-id: 0
+    pad: 40
+  }
+}
+
+you: You {
+  shape: person
+}
+
+laptop: Your machine {
+  style: {
+    stroke: "#666666"
+    fill: "#fafafa"
+    stroke-width: 2
+    border-radius: 12
+    font-size: 18
+  }
+
+  cc: Claude Code {
+    shape: rectangle
+    style: {
+      fill: "#ffffff"
+      stroke: "#333333"
+      stroke-width: 2
+      border-radius: 8
+      shadow: true
+    }
+  }
+
+  scc: snowflake-claude-code {
+    style: {
+      stroke: "#1f6feb"
+      fill: "#f5faff"
+      stroke-width: 2
+      stroke-dash: 3
+      border-radius: 10
+      font-size: 14
+    }
+
+    proxy: FastAPI proxy\n127.0.0.1:4000 {
+      shape: rectangle
+      style: {
+        fill: "#ffffff"
+        stroke: "#1f6feb"
+        stroke-width: 2
+        border-radius: 8
+        shadow: true
+      }
+    }
+
+    translator: Anthropic ⇄ Cortex\ntranslator + SSE {
+      shape: rectangle
+      style: {
+        fill: "#ffffff"
+        stroke: "#1f6feb"
+        stroke-width: 2
+        border-radius: 8
+        shadow: true
+      }
+    }
+
+    mgr: ConnectionManager\nauth + 401 re-auth {
+      shape: rectangle
+      style: {
+        fill: "#ffffff"
+        stroke: "#1f6feb"
+        stroke-width: 2
+        border-radius: 8
+        shadow: true
+      }
+    }
+  }
+}
+
+snowflake: Your Snowflake account {
+  style: {
+    stroke: "#29B5E8"
+    fill: "#eaf6fc"
+    stroke-width: 2
+    border-radius: 12
+    font-size: 18
+  }
+
+  cortex: Cortex Inference\nREST API {
+    shape: rectangle
+    style: {
+      fill: "#ffffff"
+      stroke: "#29B5E8"
+      stroke-width: 2
+      border-radius: 8
+      shadow: true
+    }
+  }
+
+  idp: Identity Provider\nOkta · Azure AD · Ping {
+    shape: rectangle
+    style: {
+      fill: "#ffffff"
+      stroke: "#29B5E8"
+      stroke-width: 2
+      border-radius: 8
+      shadow: true
+    }
+  }
+
+  audit: ACCOUNT_USAGE\nCORTEX_REST_API_USAGE_HISTORY {
+    shape: cylinder
+    style: {
+      fill: "#ffffff"
+      stroke: "#29B5E8"
+      stroke-width: 2
+    }
+  }
+}
+
+# Primary data flow (solid)
+you -> laptop.cc: prompt
+laptop.cc -> laptop.scc.proxy: "Anthropic Messages API\nvia ANTHROPIC_BASE_URL" {
+  style.stroke-width: 2
+  style.stroke: "#222222"
+}
+laptop.scc.proxy -> laptop.scc.translator {
+  style.stroke-width: 2
+  style.stroke: "#222222"
+}
+laptop.scc.translator -> laptop.scc.mgr {
+  style.stroke-width: 2
+  style.stroke: "#222222"
+}
+laptop.scc.mgr -> snowflake.cortex: "TLS · CompleteRequest" {
+  style.stroke-width: 2
+  style.stroke: "#222222"
+}
+
+# Auth path (dashed)
+laptop.scc.mgr -> snowflake.idp: "browser SSO\n(once per session)" {
+  style.stroke-dash: 4
+  style.stroke: "#888888"
+}
+
+# Audit path (dashed)
+snowflake.cortex -> snowflake.audit: "logs every call" {
+  style.stroke-dash: 4
+  style.stroke: "#888888"
+}
