@@ -173,6 +173,32 @@ class TestMessagesEndpoint:
         assert client._manager.reauth.call_count == 1
         assert client._service.complete.call_count == 2
 
+    def test_transient_network_error_retried_silently(self, client):
+        from urllib3.exceptions import ProtocolError
+
+        client._service.complete.side_effect = [
+            ProtocolError("connection closed"),
+            _FakeSSEClient([_cortex_response()]),
+        ]
+
+        with patch("snowflake_claude_code.proxy.CompleteRequest"):
+            resp = client.post("/v1/messages", json=_anthropic_request())
+
+        assert resp.status_code == 200
+        assert client._service.complete.call_count == 2
+        assert client._manager.reauth.call_count == 0  # not an auth error
+
+    def test_persistent_network_error_surfaces_502(self, client):
+        from urllib3.exceptions import ProtocolError
+
+        client._service.complete.side_effect = ProtocolError("connection closed")
+
+        with patch("snowflake_claude_code.proxy.CompleteRequest"):
+            resp = client.post("/v1/messages", json=_anthropic_request())
+
+        assert resp.status_code == 502
+        assert client._service.complete.call_count == 2  # one retry, then gave up
+
     def test_non_401_api_error_not_retried(self, client):
         from snowflake.core.exceptions import APIError
 

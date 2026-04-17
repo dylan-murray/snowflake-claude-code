@@ -22,6 +22,7 @@ from snowflake.core.cortex.inference_service._generated.models import (
     ToolToolSpecInputSchema,
 )
 from snowflake.core.exceptions import APIError
+from urllib3.exceptions import ProtocolError
 
 from snowflake_claude_code.auth import ConnectionManager
 from snowflake_claude_code.translate import (
@@ -33,6 +34,16 @@ from snowflake_claude_code.translate import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Transient network failures where retrying on a fresh socket is safe.
+# Most commonly: urllib3 pulled a dead keep-alive connection out of the pool
+# after the server closed it for being idle. These errors aren't logged at
+# ERROR level — they're noisy and Claude Code recovers transparently.
+_TRANSIENT_NETWORK_ERRORS: tuple[type[BaseException], ...] = (
+    ProtocolError,
+    ConnectionError,
+    TimeoutError,
+)
 
 CORTEX_MODELS: tuple[str, ...] = (
     "claude-sonnet-4-6",
@@ -100,7 +111,7 @@ def create_app(*, manager: ConnectionManager, model: str) -> FastAPI:
         try:
             full_response = await asyncio.to_thread(_collect_response, manager, complete_req)
         except Exception as e:
-            logger.exception("Cortex error")
+            _log_cortex_error("Cortex error", e)
             return _error_response(502, "api_error", str(e))
 
         return JSONResponse(content=cortex_to_anthropic(full_response, resolved))
@@ -157,13 +168,17 @@ def _build_tool_choice(raw: dict[str, Any] | None) -> ToolChoice | None:
 
 
 def _complete_with_reauth(manager: ConnectionManager, request: CompleteRequest) -> Any:
-    """Call ``service.complete`` with a single retry on 401 after re-authenticating."""
+    """Call ``service.complete`` with one retry on 401 (re-auth) or transient
+    network failures (fresh socket). Anything else propagates."""
     try:
         return manager.service.complete(request)
     except APIError as e:
         if getattr(e, "status", None) != 401:
             raise
         manager.reauth()
+        return manager.service.complete(request)
+    except _TRANSIENT_NETWORK_ERRORS as e:
+        logger.debug("Transient network error from Cortex (%s); retrying once", e)
         return manager.service.complete(request)
 
 
@@ -197,12 +212,21 @@ async def _stream(
             for sse in adapter.feed(data):
                 yield sse
     except Exception as e:
-        logger.exception("Cortex stream error")
+        _log_cortex_error("Cortex stream error", e)
         yield sse_event("error", {"type": "error", "error": {"type": "api_error", "message": str(e)}})
         return
 
     for sse in adapter.finish():
         yield sse
+
+
+def _log_cortex_error(label: str, exc: BaseException) -> None:
+    """Log at DEBUG for transient network blips (routine; Claude Code recovers),
+    at ERROR with a traceback for everything else."""
+    if isinstance(exc, _TRANSIENT_NETWORK_ERRORS):
+        logger.debug("%s (transient): %s", label, exc)
+    else:
+        logger.exception(label)
 
 
 def _error_response(status: int, error_type: str, message: str) -> JSONResponse:
