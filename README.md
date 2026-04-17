@@ -72,7 +72,35 @@ snowflake-claude-code \
 | `--token` | — | Snowflake PAT (skips browser SSO) |
 | `--verbose`, `-v` | off | Debug logging |
 
-Any flag can be set via an env var (`SNOWFLAKE_ACCOUNT`, `SNOWFLAKE_USER`, etc.) or `~/.snowflake-claude-code/config.toml`.
+### Environment variables
+
+Any flag can also be provided via an env var — useful for shell profiles, CI, or devcontainers:
+
+| Env var | Equivalent flag |
+|---------|-----------------|
+| `SNOWFLAKE_ACCOUNT` | `--account` |
+| `SNOWFLAKE_USER` (or `SNOWFLAKE_USERNAME`) | `--user` |
+| `SNOWFLAKE_MODEL` | `--model` |
+| `SNOWFLAKE_PORT` | `--port` |
+| `SNOWFLAKE_TOKEN` | `--token` |
+
+```bash
+export SNOWFLAKE_ACCOUNT=MYORG-MYACCOUNT
+export SNOWFLAKE_USER=me@company.com
+snowflake-claude-code
+```
+
+### Config file
+
+Or persist them in `~/.snowflake-claude-code/config.toml`:
+
+```toml
+account = "MYORG-MYACCOUNT"
+user = "me@company.com"
+default_model = "claude-sonnet-4-6"
+port = 4000
+# token = "pat-..."   # optional, skips SSO
+```
 
 Precedence: **CLI flags > env vars > config file > defaults.**
 
