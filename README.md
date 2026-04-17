@@ -109,44 +109,26 @@ ORDER BY START_TIME DESC;
 
 ```mermaid
 flowchart LR
-    User(["👤 You"])
+    You([👤 You])
 
-    subgraph laptop["💻 Your laptop"]
-        direction TB
-        CC["Claude Code<br/>subprocess"]
-        subgraph SCC["snowflake-claude-code (Python)"]
-            direction TB
-            PROXY["FastAPI proxy<br/><code>127.0.0.1:4000</code>"]
-            TRANS["Anthropic ⇄ Cortex<br/>translator + SSE adapter"]
-            MGR["ConnectionManager<br/>auth + 401 re-auth"]
-        end
+    subgraph laptop["💻 Your machine"]
+        CC[Claude Code]
+        Proxy["snowflake-claude-code<br/>proxy · 127.0.0.1:4000"]
     end
 
-    subgraph Snow["❄️ Snowflake account (your region)"]
-        direction TB
-        IDP["Identity Provider<br/>Okta · Azure AD · Ping"]
-        CORTEX["Cortex Inference<br/>REST API"]
-        AUDIT[("ACCOUNT_USAGE.<br/>CORTEX_REST_API_USAGE_HISTORY")]
+    subgraph sf["❄️ Your Snowflake account"]
+        Cortex[("Cortex Inference")]
     end
 
-    User -- prompts / edits --> CC
-    CC == "Anthropic Messages API<br/>via ANTHROPIC_BASE_URL" ==> PROXY
-    PROXY --> TRANS --> MGR
-    MGR == TLS ==> CORTEX
-    CORTEX -. logs every call .-> AUDIT
-    MGR -. browser SSO<br/>(once per session) .-> IDP
+    You --> CC
+    CC <-->|"Anthropic Messages API"| Proxy
+    Proxy <-->|"Cortex REST · TLS"| Cortex
 
-    classDef external stroke:#29B5E8,stroke-width:2px,fill:#eaf6fc,color:#000
-    classDef local stroke:#555,stroke-width:1px,fill:#f7f7f7,color:#000
-    class Snow,CORTEX,IDP,AUDIT external
-    class laptop,SCC,CC,PROXY,TRANS,MGR local
+    style laptop fill:#f8f8f8,stroke:#666,color:#000
+    style sf fill:#e6f4fb,stroke:#29b5e8,color:#000
 ```
 
-**Data path.** Claude Code sends Anthropic-format requests to the local proxy, which translates them to Cortex `CompleteRequest` objects (including tool schemas and SSE streaming). Responses stream back through the translator and into Claude Code unchanged.
-
-**Auth path.** On first launch, `ConnectionManager` opens a Snowflake connection — browser SSO by default, PAT if one is configured. On any 401 from Cortex the manager transparently rebuilds the connection and retries the request.
-
-**Boundaries.** The proxy binds to `127.0.0.1` only — nothing is exposed over the network. The Snowflake token lives in process memory and is cleared on exit.
+Claude Code sends Anthropic-format requests to the local proxy via `ANTHROPIC_BASE_URL` — it has no idea Anthropic isn't on the other end. The proxy translates each request to a Cortex `CompleteRequest` (tool schemas, streaming, and all), forwards over TLS to your Snowflake account, and streams the response back in Anthropic SSE format. When the Snowflake session expires, the proxy silently re-auths and retries the request mid-stream. The proxy binds to `127.0.0.1` only — no network exposure — and the Snowflake token lives in process memory for the session lifetime.
 
 ### Code layout
 
