@@ -16,6 +16,7 @@ from snowflake.core.cortex.inference_service import (
     CompleteRequestMessagesInner,
 )
 from snowflake.core.cortex.inference_service._generated.models import (
+    CacheControl,
     Tool,
     ToolChoice,
     ToolToolSpec,
@@ -151,6 +152,7 @@ def _build_tool(tool: dict[str, Any]) -> Tool:
     schema = ToolToolSpecInputSchema()
     if input_schema := spec.get("input_schema"):
         schema.additional_properties = input_schema
+    cache_control = _build_cache_control(tool.get("cache_control"))
     return Tool(
         tool_spec=ToolToolSpec(
             type=spec.get("type", "generic"),
@@ -158,7 +160,14 @@ def _build_tool(tool: dict[str, Any]) -> Tool:
             description=spec.get("description", ""),
             input_schema=schema,
         ),
+        cache_control=cache_control,
     )
+
+
+def _build_cache_control(raw: dict[str, Any] | None) -> CacheControl | None:
+    if not raw:
+        return None
+    return CacheControl(type=raw.get("type"))
 
 
 def _build_tool_choice(raw: dict[str, Any] | None) -> ToolChoice | None:

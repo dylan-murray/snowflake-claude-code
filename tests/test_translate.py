@@ -146,6 +146,79 @@ class TestAnthropicToCortex:
         assert "stream" not in result
 
 
+class TestCacheControl:
+    def test_cache_control_preserved_on_text_block(self):
+        result = anthropic_to_cortex(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "hi"},
+                            {"type": "text", "text": "see prior context", "cache_control": {"type": "ephemeral"}},
+                        ],
+                    }
+                ],
+                "max_tokens": 100,
+            },
+            model="m",
+        )
+        cache_block = result["messages"][0]["content_list"][1]
+        assert cache_block["cache_control"] == {"type": "ephemeral"}
+
+    def test_cache_control_preserved_on_system_blocks(self):
+        # When the system prompt carries cache_control markers we must keep the
+        # list structure instead of flattening to a string.
+        result = anthropic_to_cortex(
+            {
+                "system": [
+                    {"type": "text", "text": "part one"},
+                    {"type": "text", "text": "part two", "cache_control": {"type": "ephemeral"}},
+                ],
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 100,
+            },
+            model="m",
+        )
+        system_msg = result["messages"][0]
+        assert system_msg["role"] == "system"
+        assert "content_list" in system_msg
+        assert system_msg["content_list"][1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_cache_control_preserved_on_tool_definition(self):
+        result = anthropic_to_cortex(
+            {
+                "messages": [],
+                "max_tokens": 100,
+                "tools": [
+                    {
+                        "name": "read_file",
+                        "description": "Read",
+                        "input_schema": {"type": "object"},
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            },
+            model="m",
+        )
+        assert result["tools"][0]["cache_control"] == {"type": "ephemeral"}
+
+    def test_system_without_cache_control_still_joins(self):
+        # No cache markers → we still collapse to a single string for brevity.
+        result = anthropic_to_cortex(
+            {
+                "system": [
+                    {"type": "text", "text": "part one"},
+                    {"type": "text", "text": "part two"},
+                ],
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 100,
+            },
+            model="m",
+        )
+        assert result["messages"][0] == {"role": "system", "content": "part one\npart two"}
+
+
 class TestMessageConversion:
     def test_string_content_passthrough(self):
         result = anthropic_to_cortex(
@@ -190,8 +263,14 @@ class TestMessageConversion:
         assert "content_list" in msg
         assert len(msg["content_list"]) == 2
         assert msg["content_list"][0]["type"] == "text"
-        assert msg["content_list"][1]["type"] == "tool_use"
-        assert msg["content_list"][1]["id"] == "toolu_123"
+        tool_use = msg["content_list"][1]
+        assert tool_use["type"] == "tool_use"
+        # Cortex nests the tool fields under a "tool_use" key.
+        assert tool_use["tool_use"] == {
+            "tool_use_id": "toolu_123",
+            "name": "read_file",
+            "input": {"path": "/tmp/x"},
+        }
 
     def test_tool_result_blocks_passed_via_content_list(self):
         result = anthropic_to_cortex(
@@ -210,8 +289,14 @@ class TestMessageConversion:
         )
         msg = result["messages"][0]
         assert "content_list" in msg
-        assert msg["content_list"][0]["type"] == "tool_result"
-        assert msg["content_list"][0]["tool_use_id"] == "toolu_123"
+        block = msg["content_list"][0]
+        # Cortex pluralizes to "tool_results" and nests the fields.
+        assert block["type"] == "tool_results"
+        assert block["tool_results"]["tool_use_id"] == "toolu_123"
+        assert block["tool_results"]["content"] == [{"type": "text", "text": "file contents"}]
+        # `name` is required by Cortex but missing here because no prior tool_use
+        # in this test set it — fallback is empty string.
+        assert block["tool_results"]["name"] == ""
 
     def test_thinking_blocks_stripped(self):
         result = anthropic_to_cortex(
@@ -411,6 +496,124 @@ class TestStreamAdapter:
         msg_delta = next(e for e in parsed if e["type"] == "message_delta")
         assert msg_delta["usage"]["output_tokens"] == 5
 
+    def test_cortex_tool_use_stream(self):
+        """Cortex emits tool use in a bespoke shape — verify it translates to proper Anthropic SSE."""
+        adapter = StreamAdapter("claude-sonnet-4-6")
+
+        events = adapter.feed(
+            {
+                "id": "msg-1",
+                "choices": [
+                    {
+                        "delta": {
+                            "type": "tool_use",
+                            "tool_use_id": "toolu_abc",
+                            "name": "write_file",
+                            "text": "",
+                        }
+                    }
+                ],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 0},
+            }
+        )
+        for chunk in ['{"p', 'ath":', ' "hello.txt",', ' "content": "hi"}']:
+            events += adapter.feed(
+                {
+                    "choices": [
+                        {"delta": {"type": "tool_use", "input": chunk, "text": ""}}
+                    ],
+                }
+            )
+        events += adapter.feed(
+            {
+                "choices": [{"delta": {"type": "text", "text": ""}}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 73},
+            }
+        )
+        events += adapter.finish()
+
+        parsed = _parse_sse_list(events)
+        types = [e["type"] for e in parsed]
+
+        assert types == [
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_delta",
+            "content_block_delta",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+        ]
+
+        # content_block_start is for tool_use
+        start = parsed[1]
+        assert start["content_block"]["type"] == "tool_use"
+        assert start["content_block"]["id"] == "toolu_abc"
+        assert start["content_block"]["name"] == "write_file"
+
+        # deltas contain reconstructable input JSON
+        partial = "".join(p["delta"]["partial_json"] for p in parsed[2:6])
+        assert json.loads(partial) == {"path": "hello.txt", "content": "hi"}
+
+        # stop reason is tool_use (not end_turn) since the model handed off a tool call
+        msg_delta = next(e for e in parsed if e["type"] == "message_delta")
+        assert msg_delta["delta"]["stop_reason"] == "tool_use"
+
+    def test_text_after_tool_use_closes_prior_tool_block(self):
+        """When Cortex streams text after a tool_use in the same turn, we must close
+        the tool block before opening the text block — otherwise Claude Code sees
+        overlapping content blocks in the SSE stream and silently hangs."""
+        adapter = StreamAdapter("claude-sonnet-4-6")
+
+        events = adapter.feed(
+            {
+                "id": "msg-1",
+                "choices": [
+                    {"delta": {"type": "tool_use", "tool_use_id": "toolu_x", "name": "Bash"}}
+                ],
+                "usage": {"prompt_tokens": 50},
+            }
+        )
+        events += adapter.feed(
+            {"choices": [{"delta": {"type": "tool_use", "input": '{"cmd":"ls"}'}}]}
+        )
+        # Now Cortex streams narrative text — this must close the tool block first.
+        events += adapter.feed(
+            {"choices": [{"delta": {"type": "text", "content": "Next I will "}}]}
+        )
+        events += adapter.feed(
+            {"choices": [{"delta": {"type": "text", "content": "write the file."}}]}
+        )
+        events += adapter.finish()
+
+        parsed = _parse_sse_list(events)
+        types = [e["type"] for e in parsed]
+
+        assert types == [
+            "message_start",
+            "content_block_start",  # tool_use
+            "content_block_delta",  # input_json_delta
+            "content_block_stop",  # tool closes before text opens
+            "content_block_start",  # text
+            "content_block_delta",
+            "content_block_delta",
+            "content_block_stop",  # text closes at finish
+            "message_delta",
+            "message_stop",
+        ]
+
+        # tool_use block is at index 0, text block at index 1 — no overlap.
+        tool_start = parsed[1]
+        tool_stop = parsed[3]
+        text_start = parsed[4]
+        text_stop = parsed[7]
+        assert tool_start["index"] == 0
+        assert tool_stop["index"] == 0
+        assert text_start["index"] == 1
+        assert text_stop["index"] == 1
+
 
 class TestRoundTrip:
     def test_conversation_with_tool_use(self):
@@ -454,7 +657,11 @@ class TestRoundTrip:
         assert cortex["messages"][2]["role"] == "assistant"
         assert cortex["messages"][2]["content_list"][1]["type"] == "tool_use"
         assert cortex["messages"][3]["role"] == "user"
-        assert cortex["messages"][3]["content_list"][0]["type"] == "tool_result"
+        tool_results = cortex["messages"][3]["content_list"][0]
+        assert tool_results["type"] == "tool_results"
+        # The earlier tool_use's name is threaded forward onto tool_results.
+        assert tool_results["tool_results"]["name"] == "read_file"
+        assert tool_results["tool_results"]["tool_use_id"] == "toolu_abc"
 
         cortex_response = {
             "id": "msg-resp",
