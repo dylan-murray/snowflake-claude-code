@@ -66,10 +66,10 @@ snowflake-claude-code \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--account` | — | Snowflake account identifier |
-| `--user` | — | Snowflake username (required for SSO) |
+| `--user` | — | Snowflake username (required) |
 | `--model` | `claude-sonnet-4-6` | Cortex model ID |
 | `--port` | `4000` | Local proxy port |
-| `--token` | — | Snowflake PAT (skips browser SSO) |
+| `--token` | — | Snowflake PAT — pair with `--user` to skip browser SSO |
 | `--verbose`, `-v` | off | Debug logging |
 
 ### Environment variables

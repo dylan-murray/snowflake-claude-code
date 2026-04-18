@@ -52,8 +52,8 @@ class Config:
     def validate(self) -> None:
         if not self.account:
             raise SystemExit("Error: --account is required (or set SNOWFLAKE_ACCOUNT / config file)")
-        if not self.token and not self.user:
-            raise SystemExit("Error: --user is required for SSO auth (or set SNOWFLAKE_USER / config file)")
+        if not self.user:
+            raise SystemExit("Error: --user is required (or set SNOWFLAKE_USER / config file)")
 
 
 def _load_config_file() -> dict[str, Any]:
