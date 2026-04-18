@@ -100,7 +100,9 @@ class TestConfigValidation:
         with pytest.raises(SystemExit, match="--account is required"):
             cfg.validate()
 
-    def test_missing_user_without_token_exits(self, monkeypatch):
+    def test_missing_user_exits(self, monkeypatch):
+        # --user is required regardless of auth mode: PAT auth passes it as the
+        # authenticating identity; SSO uses it to look up the browser flow.
         monkeypatch.delenv("SNOWFLAKE_USER", raising=False)
         monkeypatch.delenv("SNOWFLAKE_USERNAME", raising=False)
         monkeypatch.delenv("SNOWFLAKE_TOKEN", raising=False)
@@ -111,12 +113,20 @@ class TestConfigValidation:
         with pytest.raises(SystemExit, match="--user is required"):
             cfg.validate()
 
-    def test_token_without_user_is_valid(self, monkeypatch):
+    def test_token_without_user_exits(self, monkeypatch):
+        # A PAT alone isn't enough — Snowflake needs the username it was issued for.
         monkeypatch.delenv("SNOWFLAKE_USER", raising=False)
         monkeypatch.delenv("SNOWFLAKE_USERNAME", raising=False)
 
         with patch("snowflake_claude_code.config.CONFIG_FILE", Path("/nonexistent")):
             cfg = Config.load(account="acct", token="pat-123")
+
+        with pytest.raises(SystemExit, match="--user is required"):
+            cfg.validate()
+
+    def test_user_with_token_is_valid(self, monkeypatch):
+        with patch("snowflake_claude_code.config.CONFIG_FILE", Path("/nonexistent")):
+            cfg = Config.load(account="acct", user="me@co.com", token="pat-123")
 
         cfg.validate()
 

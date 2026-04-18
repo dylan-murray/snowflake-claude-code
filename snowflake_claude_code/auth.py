@@ -1,7 +1,7 @@
-"""Snowflake authentication helpers. Uses PAT (OAuth) when a token is provided,
-otherwise falls back to browser-based SSO. Exposes ``ConnectionManager`` which
-owns the lifetime of a Snowflake connection and transparently re-auths when
-tokens expire.
+"""Snowflake authentication helpers. Uses a Programmatic Access Token (PAT)
+when one is provided, otherwise falls back to browser-based SSO. Exposes
+``ConnectionManager`` which owns the lifetime of a Snowflake connection and
+transparently re-auths when tokens expire.
 """
 
 from __future__ import annotations
@@ -22,10 +22,14 @@ logger = logging.getLogger(__name__)
 
 def connect(config: Config) -> SnowflakeConnection:
     if config.token:
+        # Snowflake treats Programmatic Access Tokens as password-equivalent —
+        # they authenticate through the standard user/password path, not the
+        # OAuth handler (which expects a short-lived OAuth access token from
+        # a Security Integration / External OAuth flow).
         return snowflake.connector.connect(
             account=config.account,
-            token=config.token,
-            authenticator="oauth",
+            user=config.user,
+            password=config.token,
         )
 
     return snowflake.connector.connect(
