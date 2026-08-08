@@ -52,6 +52,14 @@ dev = [
     "ruff>=0.7.0",
 ]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "snowflake_claude_code",
+    "tests",
+    "README.md",
+    "LICENSE",
+]
+
 [tool.ruff]
 line-length = 110
 target-version = "py310"
