@@ -154,7 +154,7 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-CI runs on Python 3.10–3.13.
+CI runs on Python 3.10–3.14, against both the locked dependencies and the lowest declared bounds.
 
 ## 📄 License
 

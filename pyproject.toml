@@ -1,6 +1,6 @@
 [project]
 name = "snowflake-claude-code"
-version = "1.0.3"
+version = "1.0.4"
 description = "Run Claude Code against Claude models hosted on Snowflake Cortex."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -18,12 +18,13 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development",
     "Topic :: Utilities",
 ]
 dependencies = [
-    "typer>=0.9.0",
-    "fastapi>=0.104.0",
+    "typer>=0.16.0",
+    "fastapi>=0.111.0",
     "uvicorn>=0.24.0",
     "httpx>=0.25.0",
     "snowflake-connector-python[secure-local-storage]>=3.5.0",
