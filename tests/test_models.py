@@ -50,6 +50,20 @@ class TestParseModel:
         model = parse_model("claude-sonnet-5", "ga")
         assert model is not None and model.is_ga
 
+    def test_normalizes_uppercase_names_from_show(self):
+        """SHOW CORTEX BASE MODELS reports names uppercased; the inference API
+        takes them lowercased."""
+        model = parse_model("CLAUDE-SONNET-5", "GA")
+
+        assert model is not None
+        assert model.name == "claude-sonnet-5"
+        assert (model.family, model.version) == ("sonnet", (5,))
+
+    def test_tolerates_null_lifecycle(self):
+        model = parse_model("CLAUDE-SONNET-5", None)
+
+        assert model is not None and not model.is_ga
+
 
 class TestDiscover:
     def test_returns_parsed_claude_models(self):
@@ -63,6 +77,24 @@ class TestDiscover:
         conn = _conn([{"NAME": "claude-opus-4-8", "LIFECYCLE_STATUS": "GA"}])
 
         assert [m.name for m in discover(conn)] == ["claude-opus-4-8"]
+
+    def test_handles_real_show_output_shape(self):
+        """Shape observed against a live account: uppercased names, NULL
+        lifecycle on some rows, non-Claude models mixed in."""
+        conn = _conn(
+            [
+                {"name": "ARCTIC-EXTRACT", "lifecycle_status": "GA"},
+                {"name": "ARCTIC-PARSE-DOCUMENT", "lifecycle_status": None},
+                {"name": "CLAUDE-SONNET-5", "lifecycle_status": "GA"},
+                {"name": "CLAUDE-OPUS-4-8", "lifecycle_status": "GA"},
+                {"name": "MISTRAL-LARGE2", "lifecycle_status": None},
+            ]
+        )
+
+        models = discover(conn)
+
+        assert [m.name for m in models] == ["claude-sonnet-5", "claude-opus-4-8"]
+        assert resolve("sonnet", models) == "claude-sonnet-5"
 
     def test_returns_empty_when_query_fails(self):
         assert discover(_conn(RuntimeError("no grants"))) == []

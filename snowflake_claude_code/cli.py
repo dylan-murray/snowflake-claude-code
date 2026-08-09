@@ -59,9 +59,15 @@ def main(
     manager.open()
     typer.echo("Authenticated.")
 
+    typer.echo("Listing Cortex models...")
     available = discover(manager.connection)
     config = replace(config, model=resolve(config.model, available))
+    if available:
+        typer.echo(f"Found {len(available)} Claude models.")
+    else:
+        typer.echo("Could not list models; using the built-in fallback list.")
 
+    typer.echo("Starting proxy...")
     server = _start_proxy(manager, config, advertised(available))
     try:
         _wait_for_proxy(config.port)

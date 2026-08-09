@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
@@ -57,22 +58,25 @@ class CortexModel:
         return self.lifecycle in _RETIRED
 
 
-def parse_model(name: str, lifecycle: str) -> CortexModel | None:
+def parse_model(name: str, lifecycle: str | None) -> CortexModel | None:
     """Return a CortexModel for recognizably-versioned Claude names, else None.
 
+    ``SHOW CORTEX BASE MODELS`` reports names uppercased (``CLAUDE-SONNET-5``)
+    while the inference API takes them lowercased, so names are normalized here.
     Non-Claude Cortex models and the legacy ``claude-4-sonnet`` spelling are
     skipped: they can still be selected with an explicit --model, they just
     don't take part in family resolution.
     """
-    match = _NAME_RE.match(name.strip())
+    normalized = name.strip().lower()
+    match = _NAME_RE.match(normalized)
     if match is None:
         return None
     version = tuple(int(part) for part in match.group(2).split("-"))
     return CortexModel(
-        name=name.strip(),
+        name=normalized,
         family=match.group(1),
         version=version,
-        lifecycle=lifecycle.strip().upper(),
+        lifecycle=(lifecycle or "").strip().upper(),
     )
 
 
@@ -87,12 +91,14 @@ def discover(conn: object) -> list[CortexModel]:
     The statement needs no running warehouse, so this costs a round trip and
     no credits.
     """
+    started = time.monotonic()
     try:
         with conn.cursor(DictCursor) as cur:  # type: ignore[attr-defined]
             rows = cur.execute("SHOW CORTEX BASE MODELS").fetchall()
     except Exception as exc:
-        logger.debug("Cortex model discovery failed: %s", exc)
+        logger.debug("Cortex model discovery failed after %.2fs: %s", time.monotonic() - started, exc)
         return []
+    logger.debug("SHOW CORTEX BASE MODELS returned %d rows in %.2fs", len(rows), time.monotonic() - started)
 
     models = []
     for row in rows:
@@ -106,9 +112,11 @@ def discover(conn: object) -> list[CortexModel]:
 
 
 def _column(row: object, key: str) -> str:
+    """Read a column case-insensitively. Non-string values (lifecycle_status is
+    NULL for some models) read as empty."""
     if not isinstance(row, dict):
         return ""
-    value = row.get(key, row.get(key.upper(), ""))
+    value = row.get(key, row.get(key.upper()))
     return value if isinstance(value, str) else ""
 
 

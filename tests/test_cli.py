@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from unittest.mock import MagicMock
 
 import pytest
 from typer.testing import CliRunner
@@ -22,6 +23,40 @@ class TestCliSmoke:
         assert result.exit_code == 0
         assert "--account" in output
         assert "--token" in output
+
+
+class TestStartupProgress:
+    """Every step slow enough to look like a hang must announce itself."""
+
+    def _run(self, monkeypatch, discovered):
+        import snowflake_claude_code.cli as cli
+
+        monkeypatch.setattr(cli, "ConnectionManager", MagicMock())
+        monkeypatch.setattr(cli, "discover", lambda conn: discovered)
+        monkeypatch.setattr(cli, "_start_proxy", MagicMock())
+        monkeypatch.setattr(cli, "_wait_for_proxy", MagicMock())
+        monkeypatch.setattr(cli, "_launch_claude", MagicMock(return_value=0))
+        return runner.invoke(app, ["--account", "acct", "--user", "someone"])
+
+    def test_announces_each_slow_step(self, monkeypatch):
+        result = self._run(monkeypatch, list(fallback_models()))
+        output = ANSI_RE.sub("", result.output)
+
+        assert "Authenticating to Snowflake" in output
+        assert "Listing Cortex models..." in output
+        assert "Starting proxy..." in output
+
+    def test_reports_discovered_model_count(self, monkeypatch):
+        discovered = [m for m in fallback_models() if m.family == "sonnet"]
+
+        output = ANSI_RE.sub("", self._run(monkeypatch, discovered).output)
+
+        assert f"Found {len(discovered)} Claude models." in output
+
+    def test_says_so_when_falling_back(self, monkeypatch):
+        output = ANSI_RE.sub("", self._run(monkeypatch, []).output)
+
+        assert "using the built-in fallback list" in output
 
 
 class TestPrettyModelName:
