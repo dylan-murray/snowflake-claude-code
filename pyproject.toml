@@ -24,6 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "typer>=0.16.0",
+    "rich>=12.3.0",
     "fastapi>=0.111.0",
     "uvicorn>=0.24.0",
     "httpx>=0.25.0",

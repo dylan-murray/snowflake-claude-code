@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import re
 from unittest.mock import MagicMock
 
@@ -28,35 +29,52 @@ class TestCliSmoke:
 class TestStartupProgress:
     """Every step slow enough to look like a hang must announce itself."""
 
-    def _run(self, monkeypatch, discovered):
+    def _run(self, monkeypatch, discovered, spy_status=True):
         import snowflake_claude_code.cli as cli
 
+        statuses: list[str] = []
+
+        @contextlib.contextmanager
+        def fake_status(message, *args, **kwargs):
+            statuses.append(message)
+            yield
+
+        if spy_status:
+            monkeypatch.setattr(cli.console, "status", fake_status)
         monkeypatch.setattr(cli, "ConnectionManager", MagicMock())
         monkeypatch.setattr(cli, "discover", lambda conn: discovered)
         monkeypatch.setattr(cli, "_start_proxy", MagicMock())
         monkeypatch.setattr(cli, "_wait_for_proxy", MagicMock())
         monkeypatch.setattr(cli, "_launch_claude", MagicMock(return_value=0))
-        return runner.invoke(app, ["--account", "acct", "--user", "someone"])
+        result = runner.invoke(app, ["--account", "acct", "--user", "someone"])
+        return result, statuses
 
     def test_announces_each_slow_step(self, monkeypatch):
-        result = self._run(monkeypatch, list(fallback_models()))
+        result, statuses = self._run(monkeypatch, list(fallback_models()))
         output = ANSI_RE.sub("", result.output)
 
         assert "Authenticating to Snowflake" in output
-        assert "Listing Cortex models..." in output
-        assert "Starting proxy..." in output
+        assert "Listing Cortex models..." in statuses
+        assert "Starting proxy..." in statuses
 
     def test_reports_discovered_model_count(self, monkeypatch):
         discovered = [m for m in fallback_models() if m.family == "sonnet"]
 
-        output = ANSI_RE.sub("", self._run(monkeypatch, discovered).output)
+        result, _ = self._run(monkeypatch, discovered)
 
-        assert f"Found {len(discovered)} Claude models." in output
+        assert f"Found {len(discovered)} Claude models." in ANSI_RE.sub("", result.output)
 
     def test_says_so_when_falling_back(self, monkeypatch):
-        output = ANSI_RE.sub("", self._run(monkeypatch, []).output)
+        result, _ = self._run(monkeypatch, [])
 
-        assert "using the built-in fallback list" in output
+        assert "using the built-in fallback list" in ANSI_RE.sub("", result.output)
+
+    def test_emits_no_escape_codes_when_not_a_terminal(self, monkeypatch):
+        """The real spinner must stay silent when stdout is piped, so logs and
+        CI output don't fill with cursor-control sequences."""
+        result, _ = self._run(monkeypatch, list(fallback_models()), spy_status=False)
+
+        assert "\x1b[" not in result.output
 
 
 class TestPrettyModelName:
