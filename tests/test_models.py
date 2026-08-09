@@ -7,6 +7,7 @@ import pytest
 from snowflake_claude_code.models import (
     CortexModel,
     advertised,
+    by_family_then_newest,
     discover,
     fallback_models,
     parse_model,
@@ -185,6 +186,4 @@ class TestAdvertised:
 
 
 def _ordered_fallback() -> list[CortexModel]:
-    from snowflake_claude_code.models import FAMILIES
-
-    return sorted(fallback_models(), key=lambda m: (FAMILIES.index(m.family), tuple(-p for p in m.version)))
+    return sorted(fallback_models(), key=by_family_then_newest)
