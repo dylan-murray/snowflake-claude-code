@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -26,6 +27,7 @@ from snowflake.core.exceptions import APIError
 from urllib3.exceptions import ProtocolError
 
 from snowflake_claude_code.auth import ConnectionManager
+from snowflake_claude_code.models import advertised
 from snowflake_claude_code.translate import (
     StreamAdapter,
     anthropic_to_cortex,
@@ -46,16 +48,8 @@ _TRANSIENT_NETWORK_ERRORS: tuple[type[BaseException], ...] = (
     TimeoutError,
 )
 
-CORTEX_MODELS: tuple[str, ...] = (
-    "claude-sonnet-4-6",
-    "claude-sonnet-4-5",
-    "claude-opus-4-6",
-    "claude-opus-4-5",
-    "claude-haiku-4-5",
-)
 
-
-def create_app(*, manager: ConnectionManager, model: str) -> FastAPI:
+def create_app(*, manager: ConnectionManager, model: str, models: Sequence[str] | None = None) -> FastAPI:
     """Build the FastAPI app that serves the Anthropic-compatible endpoints.
 
     Args:
@@ -63,8 +57,11 @@ def create_app(*, manager: ConnectionManager, model: str) -> FastAPI:
             request so that a ``reauth()`` mid-session is picked up without
             restarting the app.
         model: Default Cortex model ID to use when a request omits one.
+        models: Model IDs to advertise on /v1/models. Defaults to the
+            last-known-good set when discovery was unavailable.
     """
     default_model = normalize_model(model)
+    advertised_models = tuple(models) if models else advertised(())
 
     app = FastAPI()
 
@@ -82,7 +79,7 @@ def create_app(*, manager: ConnectionManager, model: str) -> FastAPI:
         return {
             "object": "list",
             "data": [
-                {"id": m, "object": "model", "created": 0, "owned_by": "snowflake"} for m in CORTEX_MODELS
+                {"id": m, "object": "model", "created": 0, "owned_by": "snowflake"} for m in advertised_models
             ],
         }
 

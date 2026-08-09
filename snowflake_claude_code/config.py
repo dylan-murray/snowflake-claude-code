@@ -16,7 +16,7 @@ else:
 CONFIG_DIR = Path.home() / ".snowflake-claude-code"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 
-DEFAULT_MODEL = "claude-sonnet-4-6"
+DEFAULT_MODEL = "sonnet"
 DEFAULT_PORT = 4000
 
 

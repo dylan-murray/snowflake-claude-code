@@ -58,7 +58,7 @@ npm install -g @anthropic-ai/claude-code
 snowflake-claude-code \
   --account MYORG-MYACCOUNT \
   --user me@company.com \
-  --model claude-sonnet-4-6
+  --model opus
 ```
 
 ### Flags
@@ -67,7 +67,7 @@ snowflake-claude-code \
 |------|---------|-------------|
 | `--account` | — | Snowflake account identifier |
 | `--user` | — | Snowflake username (required) |
-| `--model` | `claude-sonnet-4-6` | Cortex model ID |
+| `--model` | `sonnet` | Cortex model ID, or a family alias (`opus`, `sonnet`, `haiku`) |
 | `--port` | `4000` | Local proxy port |
 | `--token` | — | Snowflake PAT — pair with `--user` to skip browser SSO |
 | `--verbose`, `-v` | off | Debug logging |
@@ -97,7 +97,7 @@ Or persist them in `~/.snowflake-claude-code/config.toml`:
 ```toml
 account = "MYORG-MYACCOUNT"
 user = "me@company.com"
-default_model = "claude-sonnet-4-6"
+default_model = "sonnet"
 port = 4000
 # token = "pat-..."   # optional, skips SSO
 ```
@@ -106,17 +106,28 @@ Precedence: **CLI flags > env vars > config file > defaults.**
 
 ## 🤖 Supported models
 
-| Model ID | Notes |
-|----------|-------|
-| `claude-sonnet-4-6` | Default — 1M context built-in |
-| `claude-sonnet-4-5` | Previous-generation Sonnet |
-| `claude-opus-4-6` | Most capable Claude model on Cortex |
-| `claude-opus-4-5` | Previous-generation Opus |
-| `claude-haiku-4-5` | Fastest, cheapest |
+Pass `--model` either a **family alias** or an explicit Cortex model ID.
 
-Not every model is available in every Snowflake region — use [cross-region inference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cross-region-inference) or check `SHOW CORTEX FUNCTIONS` for your region.
+| Value | Resolves to |
+|-------|-------------|
+| `sonnet` | Newest generally available Sonnet on your account (the default) |
+| `opus` | Newest generally available Opus |
+| `haiku` | Newest generally available Haiku |
+| `claude-opus-5` (or any ID) | Used verbatim — including public-preview and non-Claude models |
 
-Non-Claude Cortex models work for plain chat too (`--model mistral-large2`, `--model llama3.1-70b`). Tool-calling compatibility varies.
+Aliases resolve at startup from `SHOW CORTEX BASE MODELS`, so they track new
+Cortex releases without an upgrade, and only ever pick a **GA** model — preview
+models must be named explicitly. The query is filtered to models your role holds
+grants on, needs no running warehouse, and costs no credits. If it fails, a
+built-in last-known-good list is used instead.
+
+`/v1/models` advertises whatever your account can actually reach, which is what
+Claude Code's model picker shows.
+
+Region availability still applies — a model listed for your account may need
+[cross-region inference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cross-region-inference)
+to run. Non-Claude Cortex models work for plain chat (`--model mistral-large2`,
+`--model llama3.1-70b`); tool-calling compatibility varies.
 
 ## 🔍 Verify traffic is hitting Snowflake
 

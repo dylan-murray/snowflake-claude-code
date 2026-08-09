@@ -12,6 +12,8 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Sequence
+from dataclasses import replace
 
 import httpx
 import typer
@@ -19,6 +21,7 @@ import uvicorn
 
 from snowflake_claude_code.auth import ConnectionManager
 from snowflake_claude_code.config import DEFAULT_MODEL, DEFAULT_PORT, Config
+from snowflake_claude_code.models import FAMILIES, advertised, discover, resolve
 from snowflake_claude_code.proxy import create_app
 
 _NOISY_LOGGERS = (
@@ -35,7 +38,13 @@ app = typer.Typer(add_completion=False)
 def main(
     account: str | None = typer.Option(None, help="Snowflake account identifier"),
     user: str | None = typer.Option(None, help="Snowflake username"),
-    model: str | None = typer.Option(None, help=f"Cortex model (default: {DEFAULT_MODEL})"),
+    model: str | None = typer.Option(
+        None,
+        help=(
+            f"Cortex model ID, or a family alias ({', '.join(FAMILIES)}) resolving "
+            f"to its newest GA model (default: {DEFAULT_MODEL})"
+        ),
+    ),
     port: int | None = typer.Option(None, help=f"Local proxy port (default: {DEFAULT_PORT})"),
     token: str | None = typer.Option(None, help="Snowflake programmatic access token (skips SSO)"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
@@ -50,7 +59,10 @@ def main(
     manager.open()
     typer.echo("Authenticated.")
 
-    server = _start_proxy(manager, config)
+    available = discover(manager.connection)
+    config = replace(config, model=resolve(config.model, available))
+
+    server = _start_proxy(manager, config, advertised(available))
     try:
         _wait_for_proxy(config.port)
         typer.echo(f"Proxy ready on 127.0.0.1:{config.port}")
@@ -74,8 +86,8 @@ def _configure_logging(verbose: bool) -> None:
             logging.getLogger(name).setLevel(logging.ERROR)
 
 
-def _start_proxy(manager: ConnectionManager, config: Config) -> uvicorn.Server:
-    fastapi_app = create_app(manager=manager, model=config.model)
+def _start_proxy(manager: ConnectionManager, config: Config, models: Sequence[str]) -> uvicorn.Server:
+    fastapi_app = create_app(manager=manager, model=config.model, models=models)
     server = uvicorn.Server(
         uvicorn.Config(
             fastapi_app,
@@ -144,8 +156,7 @@ def _find_claude() -> str:
 
 
 def _pretty_model_name(model: str) -> str:
-    segments = model.removeprefix("claude-").split("-")
-    if len(segments) >= 3 and segments[0] in {"sonnet", "opus", "haiku"}:
-        family, major, minor = segments[0], segments[1], segments[2]
-        return f"{family.capitalize()} {major}.{minor}"
-    return model
+    family, _, version = model.removeprefix("claude-").partition("-")
+    if not version or family not in {"sonnet", "opus", "haiku"}:
+        return model
+    return f"{family.capitalize()} {version.replace('-', '.')}"
