@@ -29,7 +29,7 @@ class TestCliSmoke:
 class TestStartupProgress:
     """Every step slow enough to look like a hang must announce itself."""
 
-    def _run(self, monkeypatch, discovered, spy_status=True):
+    def _run(self, monkeypatch, discovered, spy_status=True, extra_args=()):
         import snowflake_claude_code.cli as cli
 
         statuses: list[str] = []
@@ -46,7 +46,7 @@ class TestStartupProgress:
         monkeypatch.setattr(cli, "_start_proxy", MagicMock())
         monkeypatch.setattr(cli, "_wait_for_proxy", MagicMock())
         monkeypatch.setattr(cli, "_launch_claude", MagicMock(return_value=0))
-        result = runner.invoke(app, ["--account", "acct", "--user", "someone"])
+        result = runner.invoke(app, ["--account", "acct", "--user", "someone", *extra_args])
         return result, statuses
 
     def test_announces_each_slow_step(self, monkeypatch):
@@ -68,6 +68,19 @@ class TestStartupProgress:
         result, _ = self._run(monkeypatch, [])
 
         assert "using the built-in fallback list" in ANSI_RE.sub("", result.output)
+
+    def test_token_auth_gets_a_spinner(self, monkeypatch):
+        _, statuses = self._run(monkeypatch, list(fallback_models()), extra_args=("--token", "pat-xyz"))
+
+        assert any("Authenticating to Snowflake" in s for s in statuses)
+
+    def test_browser_sso_auth_has_no_spinner(self, monkeypatch):
+        """The connector prints the SSO URL and may prompt on stdin; a live
+        spinner would garble that output and hide the prompt."""
+        result, statuses = self._run(monkeypatch, list(fallback_models()))
+
+        assert not any("Authenticating" in s for s in statuses)
+        assert "Authenticating to Snowflake" in ANSI_RE.sub("", result.output)
 
     def test_emits_no_escape_codes_when_not_a_terminal(self, monkeypatch):
         """The real spinner must stay silent when stdout is piped, so logs and

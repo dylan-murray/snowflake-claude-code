@@ -60,9 +60,17 @@ def main(
     config = Config.load(account=account, user=user, model=model, port=port, token=token)
     config.validate()
 
-    typer.echo(f"Authenticating to Snowflake ({config.account})...")
     manager = ConnectionManager(config)
-    manager.open()
+    # Browser SSO prints its own instructions (including the SSO URL) and falls
+    # back to input() for a pasted URL when the browser won't open. A live
+    # spinner would garble that output and hide the prompt, so only the silent
+    # token path gets one.
+    if config.token:
+        with console.status(f"Authenticating to Snowflake ({config.account})..."):
+            manager.open()
+    else:
+        typer.echo(f"Authenticating to Snowflake ({config.account})...")
+        manager.open()
     typer.echo("Authenticated.")
 
     with console.status("Listing Cortex models..."):
