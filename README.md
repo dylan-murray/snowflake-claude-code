@@ -70,6 +70,7 @@ snowflake-claude-code \
 | `--model` | `sonnet` | Cortex model ID, or a family alias (`opus`, `sonnet`, `haiku`) |
 | `--port` | `4000` | Local proxy port |
 | `--token` | — | Snowflake PAT — pair with `--user` to skip browser SSO |
+| `--list-models` | — | Print the Cortex models this account can reach, then exit |
 | `--verbose`, `-v` | off | Debug logging |
 
 ### Environment variables
@@ -125,7 +126,8 @@ grants on, needs no running warehouse, and costs no credits. If it fails, a
 built-in last-known-good list is used instead.
 
 `/v1/models` advertises whatever your account can actually reach, which is what
-Claude Code's model picker shows.
+Claude Code's model picker shows. To see the same list from the terminal — and
+what each alias resolves to on your account — run `snowflake-claude-code --list-models`.
 
 Region availability still applies — a model listed for your account may need
 [cross-region inference](https://docs.snowflake.com/en/user-guide/snowflake-cortex/cross-region-inference)
@@ -150,6 +152,7 @@ snowflake_claude_code/
 ├── cli.py        Parse config, start proxy, launch `claude` subprocess
 ├── proxy.py      FastAPI app: /v1/messages, /v1/models, /v1/health
 ├── translate.py  Anthropic ⇄ Cortex format translation + SSE adapter
+├── models.py     Cortex model discovery + family alias resolution
 ├── auth.py       Snowflake connector + re-auth on 401
 └── config.py     Layered config loader
 ```
@@ -168,7 +171,7 @@ uv run ruff check .
 uv run ruff format .
 ```
 
-CI runs on Python 3.10–3.14, against both the locked dependencies and the lowest declared bounds.
+CI runs on Python 3.10–3.14, against the locked dependencies, the lowest declared bounds, and the newest versions on PyPI.
 
 ## 📄 License
 

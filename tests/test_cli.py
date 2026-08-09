@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from snowflake_claude_code.cli import _pretty_model_name, app
 from snowflake_claude_code.config import DEFAULT_MODEL
-from snowflake_claude_code.models import FAMILIES, advertised, fallback_models
+from snowflake_claude_code.models import FAMILIES, advertised, fallback_models, resolve
 
 runner = CliRunner()
 
@@ -50,10 +50,9 @@ class TestStartupProgress:
         return result, statuses
 
     def test_announces_each_slow_step(self, monkeypatch):
-        result, statuses = self._run(monkeypatch, list(fallback_models()))
-        output = ANSI_RE.sub("", result.output)
+        _, statuses = self._run(monkeypatch, list(fallback_models()))
 
-        assert "Authenticating to Snowflake" in output
+        assert any("Authenticating to Snowflake" in s for s in statuses)
         assert "Listing Cortex models..." in statuses
         assert "Starting proxy..." in statuses
 
@@ -69,18 +68,13 @@ class TestStartupProgress:
 
         assert "using the built-in fallback list" in ANSI_RE.sub("", result.output)
 
-    def test_token_auth_gets_a_spinner(self, monkeypatch):
-        _, statuses = self._run(monkeypatch, list(fallback_models()), extra_args=("--token", "pat-xyz"))
+    @pytest.mark.parametrize("extra", [(), ("--token", "pat-xyz")])
+    def test_both_auth_paths_get_a_spinner(self, monkeypatch, extra):
+        """Rich redirects stdout, so the connector's SSO instructions and its
+        input() prompt render above the spinner rather than being overwritten."""
+        _, statuses = self._run(monkeypatch, list(fallback_models()), extra_args=extra)
 
         assert any("Authenticating to Snowflake" in s for s in statuses)
-
-    def test_browser_sso_auth_has_no_spinner(self, monkeypatch):
-        """The connector prints the SSO URL and may prompt on stdin; a live
-        spinner would garble that output and hide the prompt."""
-        result, statuses = self._run(monkeypatch, list(fallback_models()))
-
-        assert not any("Authenticating" in s for s in statuses)
-        assert "Authenticating to Snowflake" in ANSI_RE.sub("", result.output)
 
     def test_emits_no_escape_codes_when_not_a_terminal(self, monkeypatch):
         """The real spinner must stay silent when stdout is piped, so logs and
@@ -88,6 +82,43 @@ class TestStartupProgress:
         result, _ = self._run(monkeypatch, list(fallback_models()), spy_status=False)
 
         assert "\x1b[" not in result.output
+
+
+class TestListModels:
+    def _run(self, monkeypatch, discovered):
+        import snowflake_claude_code.cli as cli
+
+        launch = MagicMock(return_value=0)
+        monkeypatch.setattr(cli, "ConnectionManager", MagicMock())
+        monkeypatch.setattr(cli, "discover", lambda conn: discovered)
+        monkeypatch.setattr(cli, "_start_proxy", MagicMock())
+        monkeypatch.setattr(cli, "_launch_claude", launch)
+        result = runner.invoke(app, ["--account", "a", "--user", "u", "--list-models"])
+        return result, launch
+
+    def test_lists_discovered_models_and_exits_without_launching(self, monkeypatch):
+        discovered = [m for m in fallback_models() if m.family == "sonnet"]
+
+        result, launch = self._run(monkeypatch, discovered)
+        output = ANSI_RE.sub("", result.output)
+
+        assert result.exit_code == 0
+        launch.assert_not_called()
+        assert f"Found {len(discovered)} Claude models on this account:" in output
+        for model in discovered:
+            assert model.name in output
+
+    def test_shows_what_each_alias_resolves_to(self, monkeypatch):
+        result, _ = self._run(monkeypatch, list(fallback_models()))
+        output = ANSI_RE.sub("", result.output)
+
+        for family in FAMILIES:
+            assert f"--model {family:<8} -> {resolve(family, fallback_models())}" in output
+
+    def test_flags_when_it_is_showing_the_fallback(self, monkeypatch):
+        result, _ = self._run(monkeypatch, [])
+
+        assert "showing the built-in fallback list" in ANSI_RE.sub("", result.output)
 
 
 class TestPrettyModelName:

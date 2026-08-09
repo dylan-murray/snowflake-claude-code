@@ -22,7 +22,14 @@ from rich.console import Console
 
 from snowflake_claude_code.auth import ConnectionManager
 from snowflake_claude_code.config import DEFAULT_MODEL, DEFAULT_PORT, Config
-from snowflake_claude_code.models import FAMILIES, advertised, discover, resolve
+from snowflake_claude_code.models import (
+    FAMILIES,
+    CortexModel,
+    advertised,
+    discover,
+    fallback_models,
+    resolve,
+)
 from snowflake_claude_code.proxy import create_app
 
 _NOISY_LOGGERS = (
@@ -53,6 +60,11 @@ def main(
     ),
     port: int | None = typer.Option(None, help=f"Local proxy port (default: {DEFAULT_PORT})"),
     token: str | None = typer.Option(None, help="Snowflake programmatic access token (skips SSO)"),
+    list_models: bool = typer.Option(
+        False,
+        "--list-models",
+        help="List the Cortex models this account can reach, then exit",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
 ) -> None:
     _configure_logging(verbose)
@@ -61,20 +73,23 @@ def main(
     config.validate()
 
     manager = ConnectionManager(config)
-    # Browser SSO prints its own instructions (including the SSO URL) and falls
-    # back to input() for a pasted URL when the browser won't open. A live
-    # spinner would garble that output and hide the prompt, so only the silent
-    # token path gets one.
-    if config.token:
-        with console.status(f"Authenticating to Snowflake ({config.account})..."):
-            manager.open()
-    else:
-        typer.echo(f"Authenticating to Snowflake ({config.account})...")
+    # Safe for browser SSO too: Rich's status redirects stdout, so the
+    # connector's own instructions — and its input() prompt when the browser
+    # won't open — render above the spinner rather than being overwritten.
+    with console.status(f"Authenticating to Snowflake ({config.account})..."):
         manager.open()
     typer.echo("Authenticated.")
 
     with console.status("Listing Cortex models..."):
         available = discover(manager.connection)
+
+    if list_models:
+        try:
+            _echo_models(available)
+        finally:
+            manager.close()
+        return
+
     config = replace(config, model=resolve(config.model, available))
     if available:
         typer.echo(f"Found {len(available)} Claude models.")
@@ -92,6 +107,22 @@ def main(
         manager.close()
 
     raise SystemExit(exit_code)
+
+
+def _echo_models(available: Sequence[CortexModel]) -> None:
+    models = available
+    if models:
+        typer.echo(f"Found {len(models)} Claude models on this account:")
+    else:
+        typer.echo("Could not list models for this account; showing the built-in fallback list:")
+        models = fallback_models()
+
+    for model in sorted(models, key=lambda m: (FAMILIES.index(m.family), tuple(-p for p in m.version))):
+        typer.echo(f"  {model.name:<24} {model.lifecycle or '-'}")
+
+    typer.echo("\nFamily aliases resolve to:")
+    for family in FAMILIES:
+        typer.echo(f"  --model {family:<8} -> {resolve(family, available)}")
 
 
 def _configure_logging(verbose: bool) -> None:
