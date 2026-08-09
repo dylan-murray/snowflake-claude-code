@@ -1010,11 +1010,12 @@ wheels = [
 
 [[package]]
 name = "snowflake-claude-code"
-version = "1.0.4"
+version = "1.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "rich" },
     { name = "snowflake" },
     { name = "snowflake-connector-python", extra = ["secure-local-storage"] },
     { name = "tomli", marker = "python_full_version < '3.11'" },
@@ -1034,6 +1035,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.111.0" },
     { name = "httpx", specifier = ">=0.25.0" },
+    { name = "rich", specifier = ">=12.3.0" },
     { name = "snowflake", specifier = ">=1.12.0" },
     { name = "snowflake-connector-python", extras = ["secure-local-storage"], specifier = ">=4.4.0" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.0" },

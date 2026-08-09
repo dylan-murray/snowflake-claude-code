@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from snowflake_claude_code.config import DEFAULT_MODEL
+from snowflake_claude_code.models import resolve
 from snowflake_claude_code.proxy import create_app
 
 
@@ -95,9 +97,11 @@ class TestModelsEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         ids = [m["id"] for m in data["data"]]
+        assert "claude-sonnet-5" in ids
         assert "claude-sonnet-4-6" in ids
-        assert "claude-sonnet-4-5" in ids
-        assert "claude-opus-4-6" in ids
+        assert "claude-opus-5" in ids
+        assert "claude-opus-4-8" in ids
+        assert resolve(DEFAULT_MODEL, ()) in ids
 
 
 class TestMessagesEndpoint:

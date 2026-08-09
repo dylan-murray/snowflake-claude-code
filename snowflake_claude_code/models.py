@@ -1,0 +1,151 @@
+"""Discovery of the Claude models a Snowflake account can actually reach.
+
+``SHOW CORTEX BASE MODELS`` reports lifecycle status and is filtered to models
+the current role holds grants on, so the proxy advertises the live set instead
+of a hardcoded list that goes stale with every Cortex release. Discovery is
+best-effort: when the query fails the last-known set below is used instead.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import time
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+
+from snowflake.connector import DictCursor
+
+logger = logging.getLogger(__name__)
+
+FAMILIES = ("opus", "sonnet", "haiku")
+
+# Last-known-good set, used only when discovery fails. Cortex has no server-side
+# "newest model" selector we can defer to here: `auto` exists on Cortex Agents
+# but is provider-agnostic (it may pick GPT or Gemini), and the inference API
+# this proxy calls requires an explicit model name. Lifecycle values mirror what
+# Cortex reported when this was written; discovery supersedes them.
+_FALLBACK: tuple[tuple[str, str], ...] = (
+    ("claude-sonnet-5", "GA"),
+    ("claude-sonnet-4-6", "GA"),
+    ("claude-sonnet-4-5", "GA"),
+    ("claude-opus-5", "PUPR"),
+    ("claude-opus-4-8", "GA"),
+    ("claude-opus-4-7", "GA"),
+    ("claude-opus-4-6", "GA"),
+    ("claude-opus-4-5", "GA"),
+    ("claude-haiku-4-5", "GA"),
+)
+
+_NAME_RE = re.compile(r"^claude-(opus|sonnet|haiku)-(\d+(?:-\d+)*)$")
+
+_RETIRED = frozenset({"EOL"})
+
+
+@dataclass(frozen=True, slots=True, order=False)
+class CortexModel:
+    name: str
+    family: str
+    version: tuple[int, ...]
+    lifecycle: str
+
+    @property
+    def is_ga(self) -> bool:
+        return self.lifecycle == "GA"
+
+    @property
+    def is_retired(self) -> bool:
+        return self.lifecycle in _RETIRED
+
+
+def parse_model(name: str, lifecycle: str | None) -> CortexModel | None:
+    """Return a CortexModel for recognizably-versioned Claude names, else None.
+
+    ``SHOW CORTEX BASE MODELS`` reports names uppercased (``CLAUDE-SONNET-5``)
+    while the inference API takes them lowercased, so names are normalized here.
+    Non-Claude Cortex models and the legacy ``claude-4-sonnet`` spelling are
+    skipped: they can still be selected with an explicit --model, they just
+    don't take part in family resolution.
+    """
+    normalized = name.strip().lower()
+    match = _NAME_RE.match(normalized)
+    if match is None:
+        return None
+    version = tuple(int(part) for part in match.group(2).split("-"))
+    return CortexModel(
+        name=normalized,
+        family=match.group(1),
+        version=version,
+        lifecycle=(lifecycle or "").strip().upper(),
+    )
+
+
+def fallback_models() -> list[CortexModel]:
+    parsed = (parse_model(name, lifecycle) for name, lifecycle in _FALLBACK)
+    return [m for m in parsed if m is not None]
+
+
+def discover(conn: object) -> list[CortexModel]:
+    """List Claude models via SHOW CORTEX BASE MODELS. Empty on any failure.
+
+    The statement needs no running warehouse, so this costs a round trip and
+    no credits.
+    """
+    started = time.monotonic()
+    try:
+        with conn.cursor(DictCursor) as cur:  # type: ignore[attr-defined]
+            rows = cur.execute("SHOW CORTEX BASE MODELS").fetchall()
+    except Exception as exc:
+        logger.debug("Cortex model discovery failed after %.2fs: %s", time.monotonic() - started, exc)
+        return []
+    logger.debug("SHOW CORTEX BASE MODELS returned %d rows in %.2fs", len(rows), time.monotonic() - started)
+
+    models = []
+    for row in rows:
+        name = _column(row, "name")
+        if not name:
+            continue
+        model = parse_model(name, _column(row, "lifecycle_status") or "")
+        if model is not None:
+            models.append(model)
+    return models
+
+
+def _column(row: object, key: str) -> str:
+    """Read a column case-insensitively. Non-string values (lifecycle_status is
+    NULL for some models) read as empty."""
+    if not isinstance(row, dict):
+        return ""
+    value = row.get(key, row.get(key.upper()))
+    return value if isinstance(value, str) else ""
+
+
+def resolve(requested: str, available: Sequence[CortexModel]) -> str:
+    """Expand a family alias ("opus") to the newest GA model in that family.
+
+    Anything else — a full model ID, a non-Claude Cortex model — passes through
+    untouched, so preview and third-party models stay selectable by name.
+    """
+    alias = requested.strip().lower().removeprefix("claude-")
+    if alias not in FAMILIES:
+        return requested.strip()
+
+    pool = _newest_ga(available, alias) or _newest_ga(fallback_models(), alias)
+    if pool is None:
+        raise SystemExit(
+            f"Error: no generally available '{alias}' model found on Cortex. "
+            "Pass --model with an explicit Cortex model ID."
+        )
+    return pool.name
+
+
+def _newest_ga(models: Iterable[CortexModel], family: str) -> CortexModel | None:
+    candidates = [m for m in models if m.family == family and m.is_ga]
+    return max(candidates, key=lambda m: m.version) if candidates else None
+
+
+def advertised(available: Sequence[CortexModel]) -> tuple[str, ...]:
+    """Model IDs to expose on /v1/models, newest first within each family."""
+    models = [m for m in (available or fallback_models()) if not m.is_retired]
+    ordered = sorted(models, key=lambda m: (FAMILIES.index(m.family), tuple(-p for p in m.version)))
+    return tuple(m.name for m in ordered)

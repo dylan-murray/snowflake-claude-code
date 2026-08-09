@@ -73,6 +73,12 @@ class ConnectionManager:
             self._service = None
 
     @property
+    def connection(self) -> SnowflakeConnection:
+        if self._conn is None:
+            raise RuntimeError("ConnectionManager.open() must be called first")
+        return self._conn
+
+    @property
     def service(self) -> CortexInferenceService:
         if self._service is None:
             raise RuntimeError("ConnectionManager.open() must be called first")
