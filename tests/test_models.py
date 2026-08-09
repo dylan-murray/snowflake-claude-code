@@ -98,6 +98,26 @@ class TestResolve:
     def test_falls_back_when_discovery_empty(self):
         assert resolve("sonnet", ()) == "claude-sonnet-5"
 
+    @pytest.mark.parametrize(
+        "pinned",
+        [
+            "claude-sonnet-4-6",
+            "claude-sonnet-4-5",
+            "claude-opus-4-6",
+            "claude-opus-4-5",
+            "claude-haiku-4-5",
+            "claude-sonnet-4-6[1m]",
+            "claude-4-sonnet",
+            "mistral-large2",
+            "llama3.1-70b",
+        ],
+    )
+    def test_pre_alias_model_values_are_unchanged(self, pinned):
+        """Configs and flags written before family aliases existed must keep
+        selecting exactly the model they name."""
+        assert resolve(pinned, fallback_models()) == pinned
+        assert resolve(pinned, ()) == pinned
+
     def test_preview_only_family_still_falls_back_to_known_ga(self):
         available = [CortexModel("claude-opus-9", "opus", (9,), "PRPR")]
 

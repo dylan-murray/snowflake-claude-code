@@ -115,6 +115,9 @@ Pass `--model` either a **family alias** or an explicit Cortex model ID.
 | `haiku` | Newest generally available Haiku |
 | `claude-opus-5` (or any ID) | Used verbatim — including public-preview and non-Claude models |
 
+Explicit IDs are passed through untouched, so a `--model` flag or `default_model`
+pinned before aliases existed keeps selecting exactly the model it names.
+
 Aliases resolve at startup from `SHOW CORTEX BASE MODELS`, so they track new
 Cortex releases without an upgrade, and only ever pick a **GA** model — preview
 models must be named explicitly. The query is filtered to models your role holds

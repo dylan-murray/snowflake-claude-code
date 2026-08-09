@@ -13,12 +13,17 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
+from snowflake.connector import DictCursor
+
 logger = logging.getLogger(__name__)
 
 FAMILIES = ("opus", "sonnet", "haiku")
 
-# Last-known-good set, used only when discovery fails. Lifecycle values mirror
-# what Cortex reported when this was written; discovery supersedes them.
+# Last-known-good set, used only when discovery fails. Cortex has no server-side
+# "newest model" selector we can defer to here: `auto` exists on Cortex Agents
+# but is provider-agnostic (it may pick GPT or Gemini), and the inference API
+# this proxy calls requires an explicit model name. Lifecycle values mirror what
+# Cortex reported when this was written; discovery supersedes them.
 _FALLBACK: tuple[tuple[str, str], ...] = (
     ("claude-sonnet-5", "GA"),
     ("claude-sonnet-4-6", "GA"),
@@ -83,8 +88,6 @@ def discover(conn: object) -> list[CortexModel]:
     no credits.
     """
     try:
-        from snowflake.connector import DictCursor
-
         with conn.cursor(DictCursor) as cur:  # type: ignore[attr-defined]
             rows = cur.execute("SHOW CORTEX BASE MODELS").fetchall()
     except Exception as exc:
