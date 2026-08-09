@@ -26,6 +26,7 @@ from snowflake_claude_code.models import (
     FAMILIES,
     CortexModel,
     advertised,
+    by_family_then_newest,
     discover,
     fallback_models,
     resolve,
@@ -117,7 +118,7 @@ def _echo_models(available: Sequence[CortexModel]) -> None:
         typer.echo("Could not list models for this account; showing the built-in fallback list:")
         models = fallback_models()
 
-    for model in sorted(models, key=lambda m: (FAMILIES.index(m.family), tuple(-p for p in m.version))):
+    for model in sorted(models, key=by_family_then_newest):
         typer.echo(f"  {model.name:<24} {model.lifecycle or '-'}")
 
     typer.echo("\nFamily aliases resolve to:")
@@ -208,6 +209,6 @@ def _find_claude() -> str:
 
 def _pretty_model_name(model: str) -> str:
     family, _, version = model.removeprefix("claude-").partition("-")
-    if not version or family not in {"sonnet", "opus", "haiku"}:
+    if not version or family not in FAMILIES:
         return model
     return f"{family.capitalize()} {version.replace('-', '.')}"

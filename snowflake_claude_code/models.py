@@ -144,8 +144,12 @@ def _newest_ga(models: Iterable[CortexModel], family: str) -> CortexModel | None
     return max(candidates, key=lambda m: m.version) if candidates else None
 
 
+def by_family_then_newest(model: CortexModel) -> tuple[int, tuple[int, ...]]:
+    """Sort key: families in FAMILIES order, newest version first within each."""
+    return (FAMILIES.index(model.family), tuple(-part for part in model.version))
+
+
 def advertised(available: Sequence[CortexModel]) -> tuple[str, ...]:
     """Model IDs to expose on /v1/models, newest first within each family."""
     models = [m for m in (available or fallback_models()) if not m.is_retired]
-    ordered = sorted(models, key=lambda m: (FAMILIES.index(m.family), tuple(-p for p in m.version)))
-    return tuple(m.name for m in ordered)
+    return tuple(m.name for m in sorted(models, key=by_family_then_newest))

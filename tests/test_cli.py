@@ -143,6 +143,12 @@ class TestPrettyModelName:
         for model in advertised(()):
             assert _pretty_model_name(model) != model, model
 
+    def test_formats_every_known_family(self):
+        """Guards against the picker label drifting from FAMILIES: a family that
+        resolves must also render, or Claude Code shows a raw model ID."""
+        for family in FAMILIES:
+            assert _pretty_model_name(f"claude-{family}-9-9") == f"{family.capitalize()} 9.9"
+
 
 class TestDefaultModel:
     def test_default_is_a_family_alias(self):
